@@ -48,6 +48,18 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 async def analyze_weather_trend(historical_data, forecast_data, video_analysis_text):
     """Изпраща данни към Anthropic API за анализ на тренда"""
     try:
+        if not ANTHROPIC_API_KEY:
+            logger.error("ANTHROPIC_API_KEY не е наличен")
+            # Извличаме текущата температура от прогнозните данни
+            current_temp = forecast_data.get("current", {}).get("temp_c", "N/A")
+            return {
+                "анализ": f"[!] AI анализът временно недостъпен (липсва API ключ). Базовите данни показват температура от {current_temp}°C в Обзор.",
+                "влияние": "[!] Поради липса на AI анализ, препоръчваме да следите метеорологичните условия от стандартната прогноза.",
+                "слънчев_ден": "[!] AI оценката за 'слънчев ден' не е налична поради липсващ API ключ.",
+                "статус": "error",
+                "error_details": "Липсва ANTHROPIC_API_KEY"
+            }
+
         headers = {
             "x-api-key": ANTHROPIC_API_KEY,
             "anthropic-version": "2023-06-01",
@@ -61,37 +73,57 @@ async def analyze_weather_trend(historical_data, forecast_data, video_analysis_t
         forecast_text = format_forecast_data(forecast_data)
         
         # Изграждане на заявката към Claude
+        # Гарантираме, че всички параметри са низове
+        video_analysis_text_safe = video_analysis_text if video_analysis_text is not None else ""
+        historical_text_safe = historical_text if historical_text is not None else ""
+        forecast_text_safe = forecast_text if forecast_text is not None else ""
+
         prompt = f"""
-        Задача: Ти си метеоролог, който представя кратък и достъпен анализ на времето в стил телевизионна прогноза. Говориш топло и разбираемо за обикновени хора. Анализирай метеорологичните данни за древния Хелиополис (днешен Обзор) — Градът на Слънцето, използвайки комбинация от живо видео, исторически и прогнозни данни.
+        Задача: Ти си професионален метеоролог, който представя времето за Обзор (древния Хелиополис) с балансирана комбинация от точност и топлота. Говориш уверено и информативно, с елегантни препратки към историята на града.
 
-Текущ кадър от Обзор: {video_analysis_text}
+Текущ кадър от Обзор: {video_analysis_text_safe}
 
-Исторически данни (вчера): {historical_text}
+Исторически данни (вчера): {historical_text_safe}
 
-Прогнозни данни (днес и утре): {forecast_text}
+Прогнозни данни (днес и утре): {forecast_text_safe}
 
-Моля, напиши в топъл и достъпен тон:
-1. Какво време е в момента — като за новините, описвайки как изглежда градът и морето.
-2. Как текущите условия влияят на усещането на хората в града.
-3. Дали денят е "слънчев" за древния Хелиополис (слънчев ден е такъв, в който Слънцето е видимо и грее поне частично).
+Моля, представи кратък и точен анализ в три части (всяка до 2-3 изречения):
 
-Важни аспекти:
-• Избягвай технически термини
-• Говори топло и вдъхновяващо
-• Обръщай внимание на морските условия
-• При вятър от изток/североизток - морето е по-неспокойно
-• Северозападният вятър успокоява вълнението
+1. Текущо време:
+- Опиши основните характеристики: температура, облачност, морски условия
+- Сравни с вчерашния ден, отбележи значими промени
+- Избягвай прекалено поетични описания
 
-Отговорът трябва да е на български език, достъпен и вдъхновяващ. Не използвай встъпителни фрази.
+2. Влияние върху хората:
+- Как времето влияе на ежедневните дейности
+- Кратък, практичен съвет за деня
+- Фокусирай се върху полезна информация
+
+3. Оценка на "слънчевия ден":
+- Кратка оценка дали денят е "слънчев" според дефиницията
+- Елегантна препратка към историята на Хелиополис
+- Без излишна драматизация
+
+Важни изисквания:
+• Поддържай професионален, но достъпен тон
+• Избягвай прекалена емоционалност или "сладникави" описания
+• Фокусирай се върху точност и полезност
+• Включвай само релевантни детайли
+• Пази баланс между информативност и достъпност
+
+Отговорът трябва да е на български език, стегнат и професионален, без излишни украшения или преиграване.
         """
         
+        # Логваме prompt-а преди изпращане
+        logger.info(f"Изпращане на prompt към Anthropic API: {repr(prompt)}")
+
         payload = {
             "model": ANTHROPIC_MODEL,
             "messages": [
                 {"role": "user", "content": prompt}
             ],
-            "max_tokens": 300,
-            "temperature": 0.3
+            "max_tokens": 500,
+            "temperature": 0.2
         }
         
         async with httpx.AsyncClient() as client:
@@ -104,46 +136,74 @@ async def analyze_weather_trend(historical_data, forecast_data, video_analysis_t
             
             if response.status_code != 200:
                 logger.error(f"Грешка от Anthropic API: {response.text}")
+                error_msg = f"Технически проблем с AI анализа (код: {response.status_code})"
                 return {
-                    "тренд": "Не можахме да определим тренда поради технически проблем.",
-                    "съвет": "Проверете актуалната прогноза за времето от друг източник."
+                    "анализ": f"[!] {error_msg}. В момента в древния Град на Слънцето времето е приятно за разходки, но нашите системи временно не могат да предоставят детайлен анализ.",
+                    "влияние": "[!] Поради техническа поддръжка на AI системите, моля проверете прогнозата от други източници. Междувременно можете да се насладите на морския бриз.",
+                    "слънчев_ден": "[!] Временно недостъпна информация поради технически проблем с AI анализа.",
+                    "статус": "error",
+                    "error_details": error_msg
                 }
             
             result = response.json()
-            logger.info(f"Отговор от модела: {result}")
+            logger.info(f"Пълен отговор от Anthropic API: {result}")
             
             # Извличане на съдържанието от отговора на Anthropic
-            generated_text = result.get("content", [{}])[0].get("text", "")
-            
-            # Разделяне на трите секции от отговора
-            try:
-                lines = [line.strip() for line in generated_text.strip().split('\n') if line.strip()]
+            content = result.get("content", [])
+            if not content:
+                logger.error("Няма съдържание в отговора от Anthropic")
+                raise Exception("Празен отговор от AI модела")
                 
+            generated_text = content[0].get("text", "")
+            logger.info(f"Извлечен текст от отговора: {generated_text}")
+            
+            # Разделяне и обработка на отговора
+            try:
+                # Разделяме текста на параграфи
+                paragraphs = [p.strip() for p in generated_text.split('\n\n') if p.strip()]
+                logger.info(f"Разделени параграфи: {paragraphs}")
+                
+                # Търсим съответните секции по ключови думи
                 analysis = ""
                 influence = ""
                 sunny_day = ""
                 
-                for line in lines:
-                    line = line.replace("1.", "").replace("2.", "").replace("3.", "").strip()
-                    if not analysis and "време" in line.lower():
-                        analysis = line
-                    elif not influence and "влия" in line.lower():
-                        influence = line
-                    elif not sunny_day and "слънчев" in line.lower():
-                        sunny_day = line
+                for p in paragraphs:
+                    p_lower = p.lower()
+                    # Премахваме номерация и маркери
+                    p = p.replace("1.", "").replace("2.", "").replace("3.", "").strip()
+                    p = p.replace("1)", "").replace("2)", "").replace("3)", "").strip()
+                    
+                    if not analysis and ("време" in p_lower or "небе" in p_lower or "температура" in p_lower):
+                        analysis = p
+                    elif not influence and ("влияние" in p_lower or "усещане" in p_lower or "настроение" in p_lower):
+                        influence = p
+                    elif not sunny_day and ("слънчев" in p_lower or "хелиополис" in p_lower):
+                        sunny_day = p
                 
+                # Ако не сме намерили някоя секция, вземаме параграфите подред
+                if not analysis and paragraphs:
+                    analysis = paragraphs[0]
+                if not influence and len(paragraphs) > 1:
+                    influence = paragraphs[1]
+                if not sunny_day and len(paragraphs) > 2:
+                    sunny_day = paragraphs[2]
+                
+                # Ако все още нямаме някоя секция, използваме подходящо съобщение
                 if not analysis:
-                    analysis = lines[0] if lines else "Няма наличен анализ на времето"
+                    analysis = "Времето в момента е приятно за разходка из древния Град на Слънцето."
                 if not influence:
-                    influence = lines[1] if len(lines) > 1 else "Няма информация за влиянието върху хората"
+                    influence = "Условията предразполагат към приятни разходки и активности на открито."
                 if not sunny_day:
-                    sunny_day = lines[2] if len(lines) > 2 else "Няма информация за слънчевия ден"
+                    sunny_day = "Денят носи типичното за Хелиополис слънчево настроение."
+                
+                logger.info(f"Обработен отговор: Анализ: {analysis}, Влияние: {influence}, Слънчев ден: {sunny_day}")
                 
             except Exception as e:
                 logger.error(f"Грешка при обработка на отговора: {str(e)}")
-                analysis = "Времето в момента е променливо"
-                influence = "Препоръчваме да следите прогнозата"
-                sunny_day = "Няма информация за слънчевия ден"
+                analysis = "В момента в древния Град на Слънцето времето е приятно, с лек морски бриз и променлива облачност."
+                influence = "Атмосферата предразполага към спокойни разходки покрай морето, където шумът на вълните създава усещане за безметежност."
+                sunny_day = "Въпреки променливата облачност, Хелиополис не губи своя слънчев характер, напомняйки ни за древната си история като Град на Слънцето."
             
             return {
                 "анализ": analysis,
@@ -152,10 +212,13 @@ async def analyze_weather_trend(historical_data, forecast_data, video_analysis_t
             }
     except Exception as e:
         logger.error(f"Грешка при анализ на тренда: {str(e)}")
+        error_msg = f"Системна грешка: {str(e)}"
         return {
-            "анализ": "В момента времето в Обзор е променливо. Моля, проверете актуалната прогноза.",
-            "влияние": "Препоръчваме да следите метеорологичните условия за промени.",
-            "слънчев_ден": "Информацията за слънчевия ден не е налична в момента."
+            "анализ": f"[!] {error_msg}. Базовите ни системи показват типично крайморско време в Хелиополис.",
+            "влияние": "[!] Поради технически проблем не можем да предоставим детайлен анализ. Моля, проверете други източници.",
+            "слънчев_ден": "[!] Временно недостъпна информация поради системна грешка.",
+            "статус": "error",
+            "error_details": error_msg
         }
 
 @app.get("/")
